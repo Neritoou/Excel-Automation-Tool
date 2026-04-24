@@ -1,26 +1,10 @@
-"""
-PLANTILLA PARA NUEVAS TAREAS (Pylance strict / Pyright standard)
-────────────────────────────────────────────────────────────────
-
-Instrucciones:
-  1. Copiar este archivo a /tasks/mi_nueva_tarea.py
-  2. Renombrar la clase y definir task_id, task_name, task_description, task_icon
-  3. Implementar get_params(), validate(), _run()
-  4. Ejecutar main.py → la tarea aparecerá automáticamente en la GUI
-
-IMPORTANTE:
-  - Los parámetros de validate() y _run() deben llamarse "params"
-    (mismo nombre que en BaseTask) para cumplir con Pyright standard.
-  - Al asignar cell.value, cell.font, cell.fill, cell.border añadir:
-      # type: ignore[union-attr]
-    ya que ws.cell() devuelve Cell | MergedCell según los stubs de openpyxl.
-"""
-
 from typing import Any
-from openpyxl.worksheet.worksheet import Worksheet
-from core.base_task import BaseTask, TaskParam, TaskResult
-from core.excel_handler import ExcelHandler
 
+import xlwings as xw
+
+from core.base_task import BaseTask, ParamType, TaskParam, TaskResult
+from core.exceptions import ValidationTaskError
+from core.excel_handler import ExcelHandler
 
 class MiNuevaTarea(BaseTask):
 
@@ -30,27 +14,28 @@ class MiNuevaTarea(BaseTask):
     task_icon: str = "🔧"
 
     def get_params(self) -> list[TaskParam]:
+        """Declara los parámetros que necesita la tarea."""
         return [
-            TaskParam("file_1", "Archivo Excel", "file", group="Entrada"),
-            TaskParam("sheet_1", "Hoja", "sheet", depends_on="file_1", group="Entrada"),
+            TaskParam("file_1", "Archivo Excel", ParamType.FILE, group="Entrada"),
+            TaskParam("sheet_1", "Hoja", ParamType.SHEET, depends_on="file_1", group="Entrada"),
         ]
 
-    def validate(self, params: dict[str, Any]) -> tuple[bool, str]:
+    def validate(self, params: dict[str, Any]) -> None:
+        """Valida que el archivo esté seleccionado."""
         if not params.get("file_1"):
-            return False, "Selecciona un archivo"
-        return True, ""
+            raise ValidationTaskError("Selecciona un archivo")
 
     def _run(self, params: dict[str, Any]) -> TaskResult:
-        handler = ExcelHandler()
-        file_path: str = str(params["file_1"])
-        wb = handler.load(file_path)
-        ws: Worksheet = wb[str(params["sheet_1"])]  # type: ignore[assignment]
+        """Lógica principal de la tarea."""
+        file_path = str(params["file_1"])
+        wb = ExcelHandler.load(file_path)
+        ws: xw.Sheet = wb.sheets[str(params["sheet_1"])]
 
-        # Tu lógica aquí...
+        # LÓGICA DE LA TAREA. . .
+        # ExcelHandler.set_cell(ws, row, col, value="dato", fill=(198, 239, 206), bold=True)
 
-        wb.save(file_path)
         return TaskResult(
             success=True,
-            message="Tarea completada exitosamente.",
+            message="Tarea completada. Ctrl+Z para deshacer, Ctrl+S para guardar.",
             output_files=[file_path],
         )
