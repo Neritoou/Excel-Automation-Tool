@@ -1,34 +1,35 @@
-"""
-Clase base abstracta para todas las tareas de automatización Excel.
-
-Patrón: Template Method
-- define el esqueleto del algoritmo en execute()
-- las subclases implementan los pasos concretos
-
-Patrón: Strategy
-- cada tarea es una estrategia intercambiable
-- la GUI y el engine las consumen de forma uniforme
-"""
-
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
+from core.exceptions import ValidationTaskError
 
-@dataclass
+class ParamType(Enum):
+    """Tipos de parámetro soportados por el constructor dinámico de formularios."""
+    FILE = "file"
+    SHEET = "sheet"
+    COLUMN = "column"
+    TEXT = "text"
+    NUMBER = "number"
+    BOOL = "bool"
+    SELECT = "select"
+
+
+@dataclass(frozen=True, slots=True)
 class TaskParam:
-    """Descriptor de un parámetro que la tarea necesita del usuario."""
+    """Descriptor inmutable de un parámetro que la tarea necesita del usuario."""
     name: str
     label: str
-    param_type: str  # "file", "sheet", "column", "text", "number", "bool"
+    param_type: ParamType
     required: bool = True
     default: Any = None
-    depends_on: str | None = None  # p.ej. "sheet" depende de "file"
+    depends_on: str | None = None
     group: str = "default"
+    options: tuple[str, ...] = ()
 
 
-@dataclass
+@dataclass(slots=True)
 class TaskResult:
     """Resultado estandarizado de cualquier tarea."""
     success: bool
@@ -43,12 +44,8 @@ class BaseTask(ABC):
 
     Para crear una nueva funcionalidad:
       1. Heredar de BaseTask
-      2. Implementar los 4 métodos abstractos
-      3. Colocar el archivo en /tasks/
-      4. El registro la descubre automáticamente
+      3. Colocar el archivo en /tasks/ e importar en el __init__
     """
-
-    # ── Metadatos (las subclases los sobreescriben) ──────────────────
     task_id: str = ""
     task_name: str = ""
     task_description: str = ""
@@ -60,8 +57,8 @@ class BaseTask(ABC):
         ...
 
     @abstractmethod
-    def validate(self, params: dict[str, Any]) -> tuple[bool, str]:
-        """Valida los parámetros antes de ejecutar."""
+    def validate(self, params: dict[str, Any]) -> None:
+        """Valida los parámetros antes de ejecutar. Lanza ValidationError si falla."""
         ...
 
     @abstractmethod
@@ -69,25 +66,21 @@ class BaseTask(ABC):
         """Lógica principal de la tarea (paso protegido del Template Method)."""
         ...
 
-    # ── Template Method ──────────────────────────────────────────────
-    def execute(self, params: dict[str, Any], progress_cb: Callable[[float, str], None] | None = None) -> TaskResult:
-        """
-        Algoritmo fijo: validar → notificar inicio → ejecutar → notificar fin.
-        Las subclases NO sobreescriben este método.
-        """
-        ok, msg = self.validate(params)
-        if not ok:
-            return TaskResult(success=False, message=f"Validación fallida: {msg}")
-
-        if progress_cb:
-            progress_cb(0, f"Iniciando: {self.task_name}...")
-
+    def execute(self, params: dict[str, Any]) -> TaskResult:
+        """Las subclases NO sobreescriben este método."""
         try:
-            result = self._run(params)
+            self.validate(params)
+            return self._run(params)
+        except ValidationTaskError as e:
+            return TaskResult(success=False, message=f"Validación fallida: {e}")
         except Exception as e:
-            result = TaskResult(success=False, message=f"Error inesperado: {e}")
+            return TaskResult(success=False, message=f"Error inesperado: {e}")
+        
+    # -- HELPERS ---
 
-        if progress_cb:
-            progress_cb(100, result.message)
-
-        return result
+    @staticmethod
+    def normalize(value: Any) -> str:
+        """Normaliza un valor a string en minúsculas sin espacios laterales."""
+        if value is None:
+            return ""
+        return str(value).strip().lower()
